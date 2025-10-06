@@ -1,0 +1,207 @@
+---
+title: "Analysing electricity usage to check with rate is best to go with"
+author: "Andrew Edwards"
+output: pdf_document
+fontsize: 12pt
+date: "Last compiled on `r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r, setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "",
+  cache = TRUE,
+  cache_path = "hydro-calc-cache/",
+  fig.path = "hydro-calc-fig-cache/",
+  fig.width = 7,
+  fig.height = 6
+)
+  # comment = "#>",
+```
+
+```{r, build, echo = FALSE, eval = FALSE}
+# To build either run this line or click knit button in RStudio:
+rmarkdown::render("hydro-calc.Rmd")
+```
+
+```{r, packages, echo = FALSE}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+# load_all()
+```
+
+# Load data
+
+```{r, load}
+raw <- read.csv("bchydro.com-consumption-XXXXXXXX0569-2025-09-02-200019.csv",
+                header = TRUE,
+                stringsAsFactors = TRUE) %>%
+  as_tibble()
+
+summary(raw)
+```
+
+Shows that we only need to keep a few columns (and two look to be the same)
+```{r, refine}
+raw_reduced <- select(raw,
+                      Interval.Start.Date.Time,
+                      Inflow..kWh.,
+                      Net.Consumption..kWh.)
+summary(raw_reduced)
+
+expect_equal(raw_reduced$Inflow..kWh.,
+             raw_reduced$Net.Consumption..kWh.)
+
+dat <- select(raw_reduced,
+              time = Interval.Start.Date.Time,
+              use = Inflow..kWh.) %>%
+  mutate(time = lubridate::ymd_hm(time))
+
+summary(dat)
+```
+
+Looked earlier like there were three repeated times:
+```{r, repeated}
+repeated <- summary(as.factor(dat$time))
+rep <- repeated[repeated > 1]
+
+rep
+filter(dat,
+       time == names(rep[1]))
+```
+Not quite working, don't worry as only three times.
+
+Add separate date and hour columns, to then summarise on
+```{r, expand}
+dat_expand <- mutate(dat,
+                     date = date(time),
+                     year = year(time),
+                     month = month(time),
+                     week = week(time),
+                     hour = hour(time))
+dat_expand
+
+summary(dat_expand)
+
+# Probably when heat pump and then car charger installed (and something else?):
+filter(dat_expand,
+       use == 0)
+```
+
+TODO check start and end, exclude any non-full days.
+
+
+Aggregate daily, and some key dates
+```{r, daily}
+heat_pump_start <- ymd("2023-06-21")
+ev_start <- ymd("2024-10-12")
+dat_daily <- summarise(group_by(dat_expand,
+                                date),
+                       daily = sum(use))
+dat_daily
+
+plot(dat_daily,
+     type = "l",
+     xlab = "Date",
+     ylab = "Daily usage (kWh)",
+     ylim = c(0, 130))
+abline(v = heat_pump_start,
+       col = "grey")
+abline(v = ev_start,
+       col = "grey")
+text(heat_pump_start,
+     130,
+     "Heat pump",
+     pos = 4)
+text(ev_start,
+     130,
+     "Car charger",
+     pos = 4)
+
+```
+Presume those spikes are restarting the hot tub (could check).
+
+## Plot usage by day of year, colour for each year
+
+Adapting from `plot.pacea_buoy()`, but a bit busy, so going to then do by week
+and then by month.
+
+```{r dailyplot}
+g <- ggplot(dat_daily,
+            aes(lubridate::yday(date),
+                daily,
+                group = factor(lubridate::year(date)),
+                colour = factor(lubridate::year(date))))
+
+h <- g + geom_line(na.rm = TRUE) +
+  scale_y_continuous(limits = c(0, max(dat_daily$daily)),
+                     expand = c(0, 10)) +
+                       # ylim(0, max(dat_daily$daily)) +
+  theme_bw() +
+#  theme(plot.title = element_text(hjust = 0.5),
+#        strip.background = element_rect(colour = "grey70",
+#                                        fill = "grey95")) +
+  labs(x = "Julian Day",
+       colour = "Year",
+       title = "Usage by day") +
+  scale_colour_discrete() +
+  # scale_colour_viridis_c() +
+  ylab("Daily usage (kWh)")
+h
+```
+
+### Weekly
+
+```{r, weekly}
+dat_weekly <- summarise(group_by(dat_expand,
+                                 week,
+                                 year),
+                        weekly = sum(use),
+                        num_days = length(unique(date))) %>%
+  mutate(weekly_scaled = weekly * 7 / num_days)
+
+dat_weekly
+
+table(dat_weekly$num_days)
+
+dat_weekly %>% as.data.frame()
+
+```
+Now plot
+```{r weeklyplot}
+g <- ggplot(dat_weekly,
+            aes(week,
+                weekly_scaled,
+                group = factor(year),
+                colour = factor(year)))
+
+h <- g + geom_line(na.rm = TRUE,
+                   linewidth = 2) +
+  scale_y_continuous(limits = c(0, max(dat_weekly$weekly_scaled)),
+                     expand = c(0, 10)) +
+  theme_bw() +
+  labs(x = "Week of year",
+       colour = "Year",
+       title = "Usage by week") +
+  scale_colour_discrete() +
+  # scale_colour_viridis_c() +
+  ylab("Weekly usage (kWh)")
+
+h
+```
+
+
+
+
+
+TODO:
+
+Add points on representing start dates as on full plot.
+
+Plot the 11 months that we've had the car, compared to the same dates for the
+previous 11 months. Actually just sum the total for each first of all.
+xccCan assume somewhat that the difference is the car use. Work
+that out, and then see savings for having that at night.
+
+Did a rough calc of $300 anyway. Be good to do each of the four hydro options.
