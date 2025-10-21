@@ -1,5 +1,5 @@
 ---
-title: "Analysing electricity usage to check with rate is best to go with"
+title: "Analysing electricity usage to check which rate is best to go with"
 author: "Andrew Edwards"
 output: pdf_document
 fontsize: 12pt
@@ -42,6 +42,17 @@ raw <- read.csv("bchydro.com-consumption-XXXXXXXX0569-2025-09-02-200019.csv",
 summary(raw)
 ```
 
+Need the second file that I downloaded with the extra month or so of data.
+```{r, load2}
+raw2 <- read.csv("bchydro.com-consumption-XXXXXXXX0569-2025-10-12-132851.csv",
+                 header = TRUE,
+                 stringsAsFactors = TRUE) %>%
+    as_tibble()
+
+summary(raw2)
+```
+
+
 Shows that we only need to keep a few columns (and two look to be the same)
 ```{r, refine}
 raw_reduced <- select(raw,
@@ -72,9 +83,52 @@ filter(dat,
 ```
 Not quite working, don't worry as only three times.
 
+Now do the same for second csv file, then rbind them together. Could do that
+earlier, but best to check the new data first.
+```{r, refine2}
+raw2_reduced <- select(raw2,
+                       Interval.Start.Date.Time,
+                       Inflow..kWh.,
+                       Net.Consumption..kWh.)
+summary(raw2_reduced)
+
+expect_equal(raw2_reduced$Inflow..kWh.,
+             raw2_reduced$Net.Consumption..kWh.)
+
+dat2 <- select(raw2_reduced,
+               time = Interval.Start.Date.Time,
+               use = Inflow..kWh.) %>%
+    mutate(time = lubridate::ymd_hm(time))
+
+summary(dat2)
+```
+
+Looked earlier like there were three repeated times:
+```{r, repeated2}
+repeated2 <- summary(as.factor(dat2$time))
+rep2 <- repeated2[repeated2 > 1]
+
+rep2
+```
+So no repeated ones (that last line is because of the summary).
+
+Combine dat and dat2 removing duplicated rows (there are some for the end of
+2025-09-01:
+```{r, combine}
+dat_combined <- bind_rows(dat,
+                      dat2) %>%
+  distinct()
+
+# There were 24 (from doing nrow), one day is repeated; it only saved full days
+# it seems (I thought it had done partial)
+expect_equal(head(dat2, 24), tail(dat, 24))
+```
+
+Now use the combined one going forward.
+
 Add separate date and hour columns, to then summarise on
 ```{r, expand}
-dat_expand <- mutate(dat,
+dat_expand <- mutate(dat_combined,
                      date = date(time),
                      year = year(time),
                      month = month(time),
@@ -89,7 +143,11 @@ filter(dat_expand,
        use == 0)
 ```
 
-TODO check start and end, exclude any non-full days.
+Check start and end, exclude any non-full days, they are both full days though:
+```{r, checkfull}
+dat_expand %>% as.data.frame() %>% head()
+dat_expand %>% as.data.frame() %>% tail()
+```
 
 
 Aggregate daily, and some key dates
@@ -199,9 +257,9 @@ TODO:
 
 Add points on representing start dates as on full plot.
 
-Plot the 11 months that we've had the car, compared to the same dates for the
+Plot the 12 months that we've had the car, compared to the same dates for the
 previous 11 months. Actually just sum the total for each first of all.
-xccCan assume somewhat that the difference is the car use. Work
+Can assume somewhat that the difference is the car use. Work
 that out, and then see savings for having that at night.
 
 Did a rough calc of $300 anyway. Be good to do each of the four hydro options.
