@@ -126,7 +126,9 @@ expect_equal(head(dat2, 24), tail(dat, 24))
 
 Now use the combined one going forward.
 
-Add separate date and hour columns, to then summarise on
+Add separate date and hour columns, to then summarise on, plus a period
+(A = before heat pump and EV,
+B = heat pump and no EV, C = heat pump and EV):
 ```{r, expand}
 dat_expand <- mutate(dat_combined,
                      date = date(time),
@@ -134,6 +136,17 @@ dat_expand <- mutate(dat_combined,
                      month = month(time),
                      week = week(time),
                      hour = hour(time))
+HERE, can add that into the above, but need to then figure out what to do for
+                     each week, may just have to tweak the start dates to be a
+                     Sunday or whatever.
+testing:
+dd <- mutate(dat_combined,
+             period = case_when(time < heat_pump_start ~ "A",
+                                time >= heat_pump_start & time < ev_start ~ "B",
+                                time >= ev_start ~ "C"))
+
+             
+
 dat_expand
 
 summary(dat_expand)
@@ -211,7 +224,7 @@ h
 
 ### Weekly
 
-```{r, weekly}
+```{r, weekly, fig.cap = "Caption."}
 dat_weekly <- summarise(group_by(dat_expand,
                                  week,
                                  year),
@@ -225,9 +238,18 @@ table(dat_weekly$num_days)
 
 dat_weekly %>% as.data.frame()
 
+# to annotate plot:
+heat_pump_start_week <- filter(dat_weekly,
+                               year == year(heat_pump_start),
+                               week == week(heat_pump_start))
+ev_start_week <- filter(dat_weekly,
+                               year == year(ev_start),
+                               week == week(ev_start))
+
 ```
 Now plot
 ```{r weeklyplot}
+heat_pump_start_plot <- 
 g <- ggplot(dat_weekly,
             aes(week,
                 weekly_scaled,
@@ -244,18 +266,54 @@ h <- g + geom_line(na.rm = TRUE,
        title = "Usage by week") +
   scale_colour_discrete() +
   # scale_colour_viridis_c() +
-  ylab("Weekly usage (kWh)")
+  ylab("Weekly usage (kWh)") +
+  annotate("segment",
+             x = heat_pump_start_week$week - 2,
+             y = heat_pump_start_week$weekly_scaled + 30,
+             xend = heat_pump_start_week$week,
+             yend = heat_pump_start_week$weekly_scaled,
+             arrow = arrow(length = unit(0.3, "cm"),
+                           type = "closed"),
+             color = "green") +
+    annotate("text",
+             x = heat_pump_start_week$week - 2,
+             y = heat_pump_start_week$weekly_scaled + 30,
+             hjust = 1,
+             vjust = 0,
+
+             colour = "green",
+             label = "HP") + 
+    annotate("segment",
+             x = ev_start_week$week + 4,
+             y = ev_start_week$weekly_scaled + 23,
+             xend = ev_start_week$week - 0.5,
+             yend = ev_start_week$weekly_scaled + 5,
+             arrow = arrow(length = unit(0.3, "cm"),
+                           type = "closed"),
+             color = "blue") +
+    annotate("text",
+             x = ev_start_week$week + 4,
+             y = ev_start_week$weekly_scaled + 23,
+             hjust = 0,
+             vjust = 0,
+             colour = "blue",
+             label = "EV")
 
 h
 ```
 
+## Effect of heat pump
+
+Can't get a full year of no-heat-pump then heat pump, but only missing some of
+the summer, but calc the difference for what we can.
+
+```{r, preheatpump}
 
 
+```
 
+HERE.
 
-TODO:
-
-Add points on representing start dates as on full plot.
 
 Plot the 12 months that we've had the car, compared to the same dates for the
 previous 11 months. Actually just sum the total for each first of all.
